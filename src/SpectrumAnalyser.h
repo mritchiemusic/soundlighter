@@ -38,7 +38,7 @@ public:
     void pushSample (float sample)
     {
         // Ring buffer — always keep the last fftSize samples
-        fifo[writePos] = sample;
+        fifo[static_cast<size_t>(writePos)] = sample;
         writePos = (writePos + 1) % fftSize;
         hopCounter++;
 
@@ -49,7 +49,7 @@ public:
             {
                 // Copy ring buffer into fftData in order
                 for (int i = 0; i < fftSize; ++i)
-                    fftData[i] = fifo[(writePos + i) % fftSize];
+                    fftData[static_cast<size_t>(i)] = fifo[static_cast<size_t>((writePos + i) % fftSize)];
                 nextFFTBlockReady = true;
             }
         }
@@ -72,13 +72,13 @@ public:
 
         for (int i = 0; i < numBins; ++i)
         {
-            float magnitude  = workBuf[i] / (float) fftSize;
+            float magnitude  = workBuf[static_cast<size_t>(i)] / (float) fftSize;
             float db         = juce::Decibels::gainToDecibels (magnitude, -100.0f);
             float normalised = juce::jlimit (0.0f, 1.0f,
                                 juce::jmap (db, -60.0f, 0.0f, 0.0f, 1.0f));
 
-            float coeff = (normalised > smoothedData[i]) ? attack : decay;
-            smoothedData[i] = coeff * smoothedData[i] + (1.0f - coeff) * normalised;
+            float coeff = (normalised > smoothedData[static_cast<size_t>(i)]) ? attack : decay;
+            smoothedData[static_cast<size_t>(i)] = coeff * smoothedData[static_cast<size_t>(i)] + (1.0f - coeff) * normalised;
         }
 
         return true;
@@ -87,7 +87,7 @@ public:
     float getMagnitude (int bin) const
     {
         jassert (bin >= 0 && bin < numBins);
-        return smoothedData[bin];
+        return smoothedData[static_cast<size_t>(bin)];
     }
 
     static float binToFrequency (int bin, double sampleRate)

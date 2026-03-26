@@ -2,6 +2,40 @@
 
 MainComponent::MainComponent()
 {
+    // Setup minBoostSlider
+    minBoostSlider.setRange(0.0, 1.0, 0.01);
+    minBoostSlider.setValue(minBoost);
+    minBoostSlider.onValueChange = [this] {
+        minBoost = (float)minBoostSlider.getValue();
+    };
+
+    // Setup silenceThresholdSlider
+    silenceThresholdSlider.setRange(0.0, 0.05, 0.0001);
+    silenceThresholdSlider.setValue(silenceThreshold);
+    silenceThresholdSlider.onValueChange = [this] {
+        silenceThreshold = (float)silenceThresholdSlider.getValue();
+    };
+    minBoostLabel.setText("Min Boost", juce::dontSendNotification);
+    minBoostLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    settingsPanel.addAndMakeVisible(minBoostLabel);
+    silenceThresholdLabel.setText("Silence Threshold", juce::dontSendNotification);
+    silenceThresholdLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    settingsPanel.addAndMakeVisible(silenceThresholdLabel);
+    // ...existing code...
+
+    // ...existing code...
+
+    // ...existing code...
+        // ...existing code...
+        auto setupSlider = [](juce::Slider& s, juce::Component& parent)
+        {
+            s.setSliderStyle (juce::Slider::LinearHorizontal);
+            s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            parent.addAndMakeVisible (s);
+        };
+
+        setupSlider(minBoostSlider, settingsPanel);
+        setupSlider(silenceThresholdSlider, settingsPanel);
     colourMapper.naturalDirection = false;
 
     for (auto& row : waterfall)
@@ -53,12 +87,7 @@ MainComponent::MainComponent()
     };
     settingsPanel.addAndMakeVisible (toneToggle);
 
-    auto setupSlider = [](juce::Slider& s, juce::Component& parent)
-    {
-        s.setSliderStyle (juce::Slider::LinearHorizontal);
-        s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        parent.addAndMakeVisible (s);
-    };
+
 
     freqSlider.setRange (20.0, 20000.0, 1.0);
     freqSlider.setSkewFactorFromMidPoint (1000.0);
@@ -109,7 +138,7 @@ void MainComponent::layoutSettings()
 {
     if (!settingsVisible) { settingsPanel.setBounds (0, 0, 0, 0); return; }
 
-    const int pw = 280, ph = 310;
+    const int pw = 280, ph = 400;
     settingsPanel.setBounds (getWidth() - pw - 8, 48, pw, ph);
 
     auto b = settingsPanel.getLocalBounds().reduced (12);
@@ -144,29 +173,43 @@ void MainComponent::layoutSettings()
     auto decayRow = b.removeFromTop (20);
     decayLabel.setBounds (decayRow.removeFromLeft (70));
     decaySlider.setBounds (decayRow);
+
+    b.removeFromTop (10);
+
+    // Move minBoost and silenceThreshold controls right after decay
+    auto minBoostRow = b.removeFromTop (20);
+    minBoostLabel.setBounds (minBoostRow.removeFromLeft (110));
+    minBoostSlider.setBounds (minBoostRow);
+
+    b.removeFromTop (6);
+    auto silenceRow = b.removeFromTop (20);
+    silenceThresholdLabel.setBounds (silenceRow.removeFromLeft (110));
+    silenceThresholdSlider.setBounds (silenceRow);
+
+    // ...existing code for any controls that follow...
 }
 
 void MainComponent::buildDeviceSelector()
 {
     inputDeviceBox.clear();
     auto& deviceType = *deviceManager.getCurrentDeviceTypeObject();
-    auto  names = deviceType.getDeviceNames (true);
-    for (int i = 0; i < names.size(); ++i)
-        inputDeviceBox.addItem (names[i], i + 1);
+    auto  deviceNames = deviceType.getDeviceNames (true);
+    for (int i = 0; i < deviceNames.size(); ++i)
+        inputDeviceBox.addItem (deviceNames[i], i + 1);
     if (auto* dev = deviceManager.getCurrentAudioDevice())
-        for (int i = 0; i < names.size(); ++i)
-            if (names[i] == dev->getName())
+        for (int i = 0; i < deviceNames.size(); ++i)
+            if (deviceNames[i] == dev->getName())
                 inputDeviceBox.setSelectedId (i + 1, juce::dontSendNotification);
 
     inputDeviceBox.onChange = [this]
     {
         auto& dt    = *deviceManager.getCurrentDeviceTypeObject();
-        auto  names = dt.getDeviceNames (true);
+        auto  deviceNames = dt.getDeviceNames (true);
         int   idx   = inputDeviceBox.getSelectedId() - 1;
-        if (idx < 0 || idx >= names.size()) return;
+        if (idx < 0 || idx >= deviceNames.size()) return;
         juce::AudioDeviceManager::AudioDeviceSetup setup;
         deviceManager.getAudioDeviceSetup (setup);
-        setup.inputDeviceName         = names[idx];
+        setup.inputDeviceName         = deviceNames[idx];
         setup.useDefaultInputChannels = false;
         setup.inputChannels.setRange (0, 32, false);
         setup.inputChannels.setRange (0, 2,  true);
@@ -257,17 +300,6 @@ void MainComponent::timerCallback()
         (uint8_t)(baseCol.getBlue()  * bri));
     displayColour = displayColour.interpolatedWith (target, 0.12f);
 
-    // Waterfall — store pure full-sat colour, magnitude in alpha
-    auto& row = waterfall[waterfallHead];
-    for (int b = 0; b < SpectrumAnalyser::numBins; ++b)
-    {
-        float mag  = analyser.getMagnitude (b);
-        float freq = SpectrumAnalyser::binToFrequency (b, currentSampleRate);
-        juce::Colour c = colourMapper.getColourForFrequency (freq);
-        row[b] = c.withAlpha (mag);
-    }
-    waterfallHead = (waterfallHead + 1) % waterfallRows;
-
     repaint();
 }
 
@@ -333,49 +365,53 @@ void MainComponent::drawWaterfall (juce::Graphics& g, juce::Rectangle<int> area)
 {
     if (area.getHeight() < 2) return;
 
-    const int   imgW    = area.getWidth();
-    const int   visible = 80;
-    const float logMin  = std::log10 (20.0f);
-    const float logMax  = std::log10 (20000.0f);
+    const int imgW = area.getWidth();
+    const int imgH = area.getHeight();
+    const float logMin = std::log10 (20.0f);
+    const float logMax = std::log10 (20000.0f);
 
-    juce::Image img (juce::Image::ARGB, imgW, visible, true);
+    juce::Image img (juce::Image::ARGB, imgW, imgH, true);
 
-    for (int row = 0; row < visible; ++row)
+    // For each horizontal pixel, map to a frequency bin and draw a vertical stripe
+    float minBoostVal = minBoost;
+    float silenceThresholdVal = silenceThreshold;
+    for (int px = 0; px < imgW; ++px)
     {
-        int   age  = (waterfallHead - 1 - row + waterfallRows) % waterfallRows;
-        float fade = 1.0f - (float) row / (float) visible;
-        fade *= fade;
-        const auto& wfRow = waterfall[age];
-        int imgY = visible - 1 - row;
+        float t = (float) px / (float) imgW;
+        float freq = std::pow (10.0f, logMin + t * (logMax - logMin));
+        float exactBin = freq * (float) SpectrumAnalyser::fftSize / (float) currentSampleRate;
+        int binLo = juce::jlimit (0, SpectrumAnalyser::numBins - 2, (int) exactBin);
+        float frac = exactBin - (float) binLo;
 
-        for (int px = 0; px < imgW; ++px)
+        float magLo = analyser.getMagnitude (binLo);
+        float magHi = analyser.getMagnitude (binLo + 1);
+        float mag = magLo + frac * (magHi - magLo);
+
+        float finalBrightness = 0.0f;
+        if (mag > silenceThresholdVal)
         {
-            float t        = (float) px / (float) imgW;
-            float freq     = std::pow (10.0f, logMin + t * (logMax - logMin));
-            float exactBin = freq * (float) SpectrumAnalyser::fftSize / (float) currentSampleRate;
-            int   binLo    = juce::jlimit (0, SpectrumAnalyser::numBins - 2, (int) exactBin);
-            float frac     = exactBin - (float) binLo;
-
-            float magLo = wfRow[binLo].getFloatAlpha();
-            float magHi = wfRow[binLo + 1].getFloatAlpha();
-            float mag   = magLo + frac * (magHi - magLo);
-
-            juce::Colour cLo = wfRow[binLo].withAlpha (1.0f);
-            juce::Colour cHi = wfRow[binLo + 1].withAlpha (1.0f);
-            juce::Colour c   = cLo.interpolatedWith (cHi, frac);
-
-            // Scale raw RGB — fromHSV is broken on this platform
-            float brightness = juce::jlimit (0.0f, 1.0f, mag * fade * 4.0f);
-            img.setPixelAt (px, imgY, juce::Colour (
-                (uint8_t)(c.getRed()   * brightness),
-                (uint8_t)(c.getGreen() * brightness),
-                (uint8_t)(c.getBlue()  * brightness)));
+            float boostedMag = juce::jlimit (minBoostVal, 1.0f, mag * (1.0f - minBoostVal) + minBoostVal);
+            finalBrightness = juce::jlimit (0.0f, 1.0f, boostedMag * 4.0f);
         }
+
+        juce::Colour cLo = colourMapper.getColourForFrequency (
+            SpectrumAnalyser::binToFrequency (binLo, currentSampleRate));
+        juce::Colour cHi = colourMapper.getColourForFrequency (
+            SpectrumAnalyser::binToFrequency (binLo + 1, currentSampleRate));
+        juce::Colour c = cLo.interpolatedWith (cHi, frac);
+
+        juce::Colour finalCol (
+            (uint8_t)(c.getRed()   * finalBrightness),
+            (uint8_t)(c.getGreen() * finalBrightness),
+            (uint8_t)(c.getBlue()  * finalBrightness));
+
+        for (int py = 0; py < imgH; ++py)
+            img.setPixelAt (px, py, finalCol);
     }
 
-    g.drawImage (img, (float)area.getX(), (float)area.getY(),
-                 (float)area.getWidth(), (float)area.getHeight(),
-                 0, 0, imgW, visible, false);
+    g.drawImage (img, static_cast<int>(area.getX()), static_cast<int>(area.getY()),
+                 static_cast<int>(area.getWidth()), static_cast<int>(area.getHeight()),
+                 0, 0, imgW, imgH, false);
 }
 
 void MainComponent::drawFrequencyLabels (juce::Graphics& g, juce::Rectangle<int> area)

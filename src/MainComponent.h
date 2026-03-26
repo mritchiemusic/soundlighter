@@ -76,6 +76,16 @@ private:
     void buildDeviceSelector();
     void layoutSettings();
 
+    // Adjustable display parameters
+    float minBoost = 0.18f;
+    float silenceThreshold = 0.003f;
+
+    // Sliders for display parameters
+    juce::Slider minBoostSlider;
+    juce::Slider silenceThresholdSlider;
+    juce::Label minBoostLabel;
+    juce::Label silenceThresholdLabel;
+
     int  dividerY()       const { return (int)(getHeight() * splitRatio); }
     bool nearDivider(int y) const { return std::abs (y - dividerY()) < 6; }
 
@@ -92,7 +102,7 @@ private:
     // Waterfall — colour holds hue, alpha holds magnitude
     static constexpr int waterfallRows = 120;
     std::array<std::array<juce::Colour, SpectrumAnalyser::numBins>, waterfallRows> waterfall;
-    int waterfallHead = 0;
+    // int waterfallHead = 0; // Removed unused field
 
     // Tone generator
     bool  toneEnabled        = false;
