@@ -1461,4 +1461,24 @@ CMakeFiles/SpectrumToColour.dir/src/Main.cpp.o: \
   /Users/mike/Dev/JUCE/modules/juce_dsp/widgets/juce_Chorus.h \
   /Users/mike/Dev/SpectrumToColour/src/MainComponent.h \
   /Users/mike/Dev/SpectrumToColour/src/SpectrumAnalyser.h \
-  /Users/mike/Dev/SpectrumToColour/src/FrequencyToColour.h
+  /Users/mike/Dev/SpectrumToColour/src/FrequencyToColour.h \
+  /Users/mike/Dev/SpectrumToColour/src/SpectrumRingBuffer.h \
+  /Users/mike/Dev/SpectrumToColour/src/TeensySerialHandler.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/fcntl.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/fcntl.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_o_sync.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_o_dsync.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_s_ifmt.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_filesec_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/termios.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/termios.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_posix_vdisable.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/ttycom.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/ioccom.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/ttydefaults.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/unistd.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/select.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_select.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_uuid_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/gethostuuid.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/glob.h

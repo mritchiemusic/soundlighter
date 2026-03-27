@@ -6,13 +6,14 @@ class FrequencyToColour
 public:
     bool naturalDirection = false;  // false = low→red, high→violet
 
-    // Returns a full-brightness colour for the given frequency
-    juce::Colour getColourForFrequency (float frequencyHz) const
+    juce::Colour getColourForFrequencyInRange (float frequencyHz,
+                                               float minFrequencyHz,
+                                               float maxFrequencyHz) const
     {
-        frequencyHz = juce::jlimit (20.0f, 20000.0f, frequencyHz);
+        frequencyHz = juce::jlimit (minFrequencyHz, maxFrequencyHz, frequencyHz);
 
-        const float logMin = std::log10 (20.0f);
-        const float logMax = std::log10 (20000.0f);
+        const float logMin = std::log10 (minFrequencyHz);
+        const float logMax = std::log10 (maxFrequencyHz);
         float t = (std::log10 (frequencyHz) - logMin) / (logMax - logMin);
 
         const float wlMin = 380.0f;
@@ -22,6 +23,12 @@ public:
                    : wlMax - t * (wlMax - wlMin);
 
         return wavelengthToRGB (wl);
+    }
+
+    // Returns a full-brightness colour for the given frequency
+    juce::Colour getColourForFrequency (float frequencyHz) const
+    {
+        return getColourForFrequencyInRange (frequencyHz, 20.0f, 20000.0f);
     }
 
     // Convenience: returns colour scaled by brightness (0=black, 1=full colour)

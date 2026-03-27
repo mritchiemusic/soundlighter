@@ -2,6 +2,8 @@
 #include <JuceHeader.h>
 #include "SpectrumAnalyser.h"
 #include "FrequencyToColour.h"
+#include "SpectrumRingBuffer.h"
+#include "TeensySerialHandler.h"
 
 //==============================================================================
 class GearButton : public juce::Button
@@ -75,6 +77,10 @@ private:
     void drawFrequencyLabels(juce::Graphics&, juce::Rectangle<int>);
     void buildDeviceSelector();
     void layoutSettings();
+    float getSpectrumMinHz() const;
+    float getSpectrumMaxHz() const;
+    juce::Colour getMappedColourForFrequency (float frequencyHz) const;
+    float getSpectrumMagnitudeForFrequency (float frequencyHz) const;
 
     // Adjustable display parameters
     float minBoost = 0.18f;
@@ -85,6 +91,8 @@ private:
     juce::Slider silenceThresholdSlider;
     juce::Label minBoostLabel;
     juce::Label silenceThresholdLabel;
+    juce::ToggleButton instrumentRangeToggle { "Instrument range (C2-C7)" };
+    bool useInstrumentRange = false;
 
     int  dividerY()       const { return (int)(getHeight() * splitRatio); }
     bool nearDivider(int y) const { return std::abs (y - dividerY()) < 6; }
@@ -125,6 +133,21 @@ private:
     juce::TextButton   refreshButton { "↺" };
     juce::ToggleButton toneToggle    { "Tone generator" };
     juce::Slider       freqSlider, volSlider, attackSlider, decaySlider;
+
+    // Teensy LED controller
+    SpectrumRingBuffer spectrumBuffer;
+    std::array<float, SpectrumRingBuffer::NUM_LEDS> ledSmoothedBrightness{};
+    std::array<float, SpectrumRingBuffer::NUM_LEDS> ledQuantErrorBrightness{};
+    std::unique_ptr<TeensySerialHandler> teensyHandler;
+    uint32_t lastTeensyReconnectMs = 0;
+    
+    // Helper to send current spectrum to Teensy
+    void updateSpectrumToTeensy();
+
+    static constexpr float fullRangeMinHz = 20.0f;
+    static constexpr float fullRangeMaxHz = 20000.0f;
+    static constexpr float instrumentRangeMinHz = 65.41f;
+    static constexpr float instrumentRangeMaxHz = 2093.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };
