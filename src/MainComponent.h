@@ -81,18 +81,22 @@ private:
     float getSpectrumMaxHz() const;
     juce::Colour getMappedColourForFrequency (float frequencyHz) const;
     float getSpectrumMagnitudeForFrequency (float frequencyHz) const;
+    void applyInputDeviceSelection (const juce::String& targetInputDevice, bool enableAllInputs);
 
     // Adjustable display parameters
     float minBoost = 0.18f;
     float silenceThreshold = 0.003f;
+    float harmonicWidth = 0.4f;
 
     // Sliders for display parameters
     juce::Slider minBoostSlider;
     juce::Slider silenceThresholdSlider;
+    juce::Slider harmonicWidthSlider;
     juce::Label minBoostLabel;
     juce::Label silenceThresholdLabel;
+    juce::Label harmonicWidthLabel;
     juce::ToggleButton instrumentRangeToggle { "Instrument range (C2-C7)" };
-    bool useInstrumentRange = false;
+    bool useInstrumentRange = true;
 
     int  dividerY()       const { return (int)(getHeight() * splitRatio); }
     bool nearDivider(int y) const { return std::abs (y - dividerY()) < 6; }
@@ -131,8 +135,13 @@ private:
     juce::Label        deviceLabel, freqLabel, freqValueLabel, volLabel, attackLabel, decayLabel;
     juce::ComboBox     inputDeviceBox;
     juce::TextButton   refreshButton { "↺" };
+    juce::ToggleButton systemSoundToggle { "System sound" };
     juce::ToggleButton toneToggle    { "Tone generator" };
     juce::Slider       freqSlider, volSlider, attackSlider, decaySlider;
+
+    juce::StringArray availableInputDeviceNames;
+    juce::String      systemSoundDeviceName;
+    juce::String      selectedHardwareInputDeviceName;
 
     // Teensy LED controller
     SpectrumRingBuffer spectrumBuffer;

@@ -5,25 +5,25 @@
 /**
  * SpectrumAnalyser
  *
- * 8192-point FFT with 75% overlap (hop = fftSize/4) so new frames fire
- * ~4x more often — at 44100Hz that's ~46ms per frame instead of ~186ms.
- * This gives smooth waterfall motion without sacrificing frequency resolution.
+ * 2048-point FFT with 75% overlap (hop = fftSize/4).
+ * At 44100Hz: 21.5Hz bin resolution, 1024 bins, new frame every ~11.6ms.
+ * Good balance of frequency resolution and visual responsiveness.
  */
 class SpectrumAnalyser
 {
 public:
-    static constexpr int fftOrder = 13;           // 2^13 = 8192 point FFT
+    static constexpr int fftOrder = 11;           // 2^11 = 2048 point FFT
     static constexpr int fftSize  = 1 << fftOrder;
     static constexpr int numBins  = fftSize / 2;
 
     // Hop size = how many new samples before we fire the FFT
-    // fftSize/4 = 75% overlap = ~4x more frames per second
+    // fftSize/4 = 75% overlap = frames every ~11.6ms at 44100Hz
     static constexpr int hopSize  = fftSize / 4;
 
     // ── Tunable smoothing ─────────────────────────────────────────────────
     // Range 0..1 — lower = faster response, higher = smoother/slower
-    float attack = 0.5f;   // how fast magnitudes rise
-    float decay  = 0.65f;  // how fast magnitudes fall
+    float attack = 0.0f;   // how fast magnitudes rise
+    float decay  = 0.0f;   // how fast magnitudes fall
 
     SpectrumAnalyser()
         : forwardFFT (fftOrder),

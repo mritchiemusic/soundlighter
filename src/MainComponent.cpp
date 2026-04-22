@@ -15,12 +15,23 @@ MainComponent::MainComponent()
     silenceThresholdSlider.onValueChange = [this] {
         silenceThreshold = (float)silenceThresholdSlider.getValue();
     };
+
+    // Setup harmonicWidthSlider
+    harmonicWidthSlider.setRange(0.0, 1.0, 0.01);
+    harmonicWidthSlider.setValue(harmonicWidth);
+    harmonicWidthSlider.onValueChange = [this] {
+        harmonicWidth = (float) harmonicWidthSlider.getValue();
+    };
+
     minBoostLabel.setText("Min Boost", juce::dontSendNotification);
     minBoostLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     settingsPanel.addAndMakeVisible(minBoostLabel);
     silenceThresholdLabel.setText("Silence Threshold", juce::dontSendNotification);
     silenceThresholdLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     settingsPanel.addAndMakeVisible(silenceThresholdLabel);
+    harmonicWidthLabel.setText("Harmonic Width", juce::dontSendNotification);
+    harmonicWidthLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    settingsPanel.addAndMakeVisible(harmonicWidthLabel);
     // ...existing code...
 
     // ...existing code...
@@ -36,6 +47,7 @@ MainComponent::MainComponent()
 
         setupSlider(minBoostSlider, settingsPanel);
         setupSlider(silenceThresholdSlider, settingsPanel);
+        setupSlider(harmonicWidthSlider, settingsPanel);
     colourMapper.naturalDirection = false;
 
     for (auto& row : waterfall)
@@ -78,6 +90,33 @@ MainComponent::MainComponent()
     refreshButton.onClick = [this] { buildDeviceSelector(); };
     settingsPanel.addAndMakeVisible (refreshButton);
 
+    systemSoundToggle.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
+    systemSoundToggle.setToggleState (false, juce::dontSendNotification);
+    systemSoundToggle.onClick = [this]
+    {
+        if (systemSoundToggle.getToggleState())
+        {
+            if (systemSoundDeviceName.isEmpty())
+            {
+                systemSoundToggle.setToggleState (false, juce::dontSendNotification);
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::AlertWindow::InfoIcon,
+                    "System Sound Unavailable",
+                    "No loopback capture device was found.\n\n"
+                    "Install a virtual loopback driver (for example BlackHole) to capture macOS system audio."
+                );
+                return;
+            }
+
+            applyInputDeviceSelection (systemSoundDeviceName, true);
+            return;
+        }
+
+        if (selectedHardwareInputDeviceName.isNotEmpty())
+            applyInputDeviceSelection (selectedHardwareInputDeviceName, false);
+    };
+    settingsPanel.addAndMakeVisible (systemSoundToggle);
+
     toneToggle.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     toneToggle.onClick = [this]
     {
@@ -88,6 +127,7 @@ MainComponent::MainComponent()
     settingsPanel.addAndMakeVisible (toneToggle);
 
     instrumentRangeToggle.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
+    instrumentRangeToggle.setToggleState (useInstrumentRange, juce::dontSendNotification);
     instrumentRangeToggle.onClick = [this]
     {
         useInstrumentRange = instrumentRangeToggle.getToggleState();
@@ -129,6 +169,18 @@ MainComponent::MainComponent()
 
     setSize (1100, 760);
     setAudioChannels (2, 2);
+
+    // Prefer a small hardware buffer for tighter visual response.
+    {
+        juce::AudioDeviceManager::AudioDeviceSetup setup;
+        deviceManager.getAudioDeviceSetup (setup);
+        if (setup.bufferSize == 0 || setup.bufferSize > 256)
+        {
+            setup.bufferSize = 256;
+            deviceManager.setAudioDeviceSetup (setup, true);
+        }
+    }
+
     buildDeviceSelector();
     deviceManager.addChangeListener (this);
     
@@ -151,7 +203,7 @@ void MainComponent::layoutSettings()
 {
     if (!settingsVisible) { settingsPanel.setBounds (0, 0, 0, 0); return; }
 
-    const int pw = 280, ph = 430;
+    const int pw = 280, ph = 470;
     settingsPanel.setBounds (getWidth() - pw - 8, 48, pw, ph);
 
     auto b = settingsPanel.getLocalBounds().reduced (12);
@@ -163,6 +215,8 @@ void MainComponent::layoutSettings()
     inputDeviceBox.setBounds (deviceRow);
 
     b.removeFromTop (10);
+    systemSoundToggle.setBounds (b.removeFromTop (24));
+    b.removeFromTop (6);
     toneToggle.setBounds (b.removeFromTop (24));
     b.removeFromTop (6);
     instrumentRangeToggle.setBounds (b.removeFromTop (24));
@@ -201,35 +255,108 @@ void MainComponent::layoutSettings()
     silenceThresholdLabel.setBounds (silenceRow.removeFromLeft (110));
     silenceThresholdSlider.setBounds (silenceRow);
 
+    b.removeFromTop (6);
+    auto widthRow = b.removeFromTop (20);
+    harmonicWidthLabel.setBounds (widthRow.removeFromLeft (110));
+    harmonicWidthSlider.setBounds (widthRow);
+
     // ...existing code for any controls that follow...
 }
 
 void MainComponent::buildDeviceSelector()
 {
     inputDeviceBox.clear();
-    auto& deviceType = *deviceManager.getCurrentDeviceTypeObject();
-    auto  deviceNames = deviceType.getDeviceNames (true);
-    for (int i = 0; i < deviceNames.size(); ++i)
-        inputDeviceBox.addItem (deviceNames[i], i + 1);
+
+    auto* deviceType = deviceManager.getCurrentDeviceTypeObject();
+    if (deviceType == nullptr)
+        return;
+
+    availableInputDeviceNames = deviceType->getDeviceNames (true);
+    systemSoundDeviceName = {};
+
+    // Prefer explicit loopback/virtual devices over generic interface names.
+    static const juce::StringArray preferredLoopbackKeywords {
+        "BlackHole", "Loopback", "Soundflower", "Background Music", "VB-Cable",
+        "Virtual", "Loopback 1", "Loopback 2"
+    };
+    static const juce::StringArray fallbackLoopbackKeywords {
+        "Apollo", "Universal Audio"
+    };
+
+    auto findMatchingDevice = [this] (const juce::StringArray& keywords) -> juce::String
+    {
+        for (const auto& name : availableInputDeviceNames)
+            for (const auto& keyword : keywords)
+                if (name.containsIgnoreCase (keyword))
+                    return name;
+
+        return {};
+    };
+
+    systemSoundDeviceName = findMatchingDevice (preferredLoopbackKeywords);
+    if (systemSoundDeviceName.isEmpty())
+        systemSoundDeviceName = findMatchingDevice (fallbackLoopbackKeywords);
+
+    juce::String systemSoundLabel = "System sound";
+    if (systemSoundDeviceName.isNotEmpty())
+        systemSoundLabel << " (" << systemSoundDeviceName << ")";
+    else
+        systemSoundLabel << " (requires loopback driver)";
+    systemSoundToggle.setButtonText (systemSoundLabel);
+
+    for (int i = 0; i < availableInputDeviceNames.size(); ++i)
+        inputDeviceBox.addItem (availableInputDeviceNames[i], i + 1);
+
     if (auto* dev = deviceManager.getCurrentAudioDevice())
-        for (int i = 0; i < deviceNames.size(); ++i)
-            if (deviceNames[i] == dev->getName())
+    {
+        if (! systemSoundToggle.getToggleState())
+            selectedHardwareInputDeviceName = dev->getName();
+
+        for (int i = 0; i < availableInputDeviceNames.size(); ++i)
+            if (availableInputDeviceNames[i] == dev->getName())
                 inputDeviceBox.setSelectedId (i + 1, juce::dontSendNotification);
+    }
+
+    if (selectedHardwareInputDeviceName.isEmpty() && availableInputDeviceNames.size() > 0)
+        selectedHardwareInputDeviceName = availableInputDeviceNames[0];
 
     inputDeviceBox.onChange = [this]
     {
-        auto& dt    = *deviceManager.getCurrentDeviceTypeObject();
-        auto  deviceNames = dt.getDeviceNames (true);
-        int   idx   = inputDeviceBox.getSelectedId() - 1;
-        if (idx < 0 || idx >= deviceNames.size()) return;
-        juce::AudioDeviceManager::AudioDeviceSetup setup;
-        deviceManager.getAudioDeviceSetup (setup);
-        setup.inputDeviceName         = deviceNames[idx];
-        setup.useDefaultInputChannels = false;
-        setup.inputChannels.setRange (0, 32, false);
-        setup.inputChannels.setRange (0, 2,  true);
-        deviceManager.setAudioDeviceSetup (setup, true);
+        const int idx = inputDeviceBox.getSelectedId() - 1;
+        if (idx < 0 || idx >= availableInputDeviceNames.size())
+            return;
+
+        selectedHardwareInputDeviceName = availableInputDeviceNames[idx];
+
+        if (! systemSoundToggle.getToggleState())
+            applyInputDeviceSelection (selectedHardwareInputDeviceName, false);
     };
+}
+
+void MainComponent::applyInputDeviceSelection (const juce::String& targetInputDevice, bool enableAllInputs)
+{
+    juce::AudioDeviceManager::AudioDeviceSetup setup;
+    deviceManager.getAudioDeviceSetup (setup);
+    setup.inputDeviceName         = targetInputDevice;
+    setup.useDefaultInputChannels = false;
+    setup.inputChannels.setRange (0, 256, false);
+    if (enableAllInputs)
+        setup.inputChannels.setRange (0, 256, true);
+    else
+        setup.inputChannels.setRange (0, 2, true);
+    if (setup.bufferSize == 0 || setup.bufferSize > 256)
+        setup.bufferSize = 256;
+
+    const auto err = deviceManager.setAudioDeviceSetup (setup, true);
+    if (err.isNotEmpty())
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                "Could Not Select Device",
+                                                err);
+
+        if (targetInputDevice == systemSoundDeviceName)
+            systemSoundToggle.setToggleState (false, juce::dontSendNotification);
+    }
 }
 
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*) { buildDeviceSelector(); }
@@ -255,8 +382,17 @@ float MainComponent::getSpectrumMagnitudeForFrequency (float frequencyHz) const
 {
     const float exactBin = frequencyHz * (float) SpectrumAnalyser::fftSize
                            / (float) currentSampleRate;
-    const float binRadius = juce::jlimit (1.0f, 16.0f,
-                                          0.75f + exactBin * (useInstrumentRange ? 0.08f : 0.04f));
+    // Frequency position 0..1 in log space for width scaling
+    const float wLogMin = std::log10 (getSpectrumMinHz());
+    const float wLogMax = std::log10 (getSpectrumMaxHz());
+    const float freqPos = juce::jlimit (0.0f, 1.0f,
+                                        (std::log10 (frequencyHz) - wLogMin)
+                                        / (wLogMax - wLogMin));
+    // Low freqs get mild widening; high freqs get full widening.
+    const float freqWidthFactor = 0.15f + 0.85f * freqPos;
+    const float widthScale = 0.75f + harmonicWidth * 5.25f * freqWidthFactor;
+    const float baseRadius = 1.0f + exactBin * (useInstrumentRange ? 0.10f : 0.06f);
+    const float binRadius = juce::jlimit (1.0f, 72.0f, baseRadius * widthScale);
 
     const int startBin = juce::jlimit (0, SpectrumAnalyser::numBins - 1,
                                        (int) std::floor (exactBin - binRadius));
@@ -368,10 +504,10 @@ void MainComponent::timerCallback()
     float fundFreq = juce::jlimit (20.0f, 20000.0f,
                         SpectrumAnalyser::binToFrequency (peakBin, currentSampleRate));
     if (peak > 0.05f)
-        smoothedFundFreq = smoothedFundFreq * 0.4f + fundFreq * 0.6f;
+        smoothedFundFreq = smoothedFundFreq * 0.15f + fundFreq * 0.85f;
 
     smoothedAmplitude = juce::jlimit (0.0f, 1.0f,
-                            smoothedAmplitude * 0.5f + rms * 0.5f * 8.0f);
+                            smoothedAmplitude * 0.25f + rms * 0.75f * 8.0f);
 
     // Top colour rect — full hue, brightness from amplitude
     float bri = std::pow (smoothedAmplitude, 0.33f);
@@ -381,7 +517,7 @@ void MainComponent::timerCallback()
         (uint8_t)(baseCol.getRed()   * bri),
         (uint8_t)(baseCol.getGreen() * bri),
         (uint8_t)(baseCol.getBlue()  * bri));
-    displayColour = displayColour.interpolatedWith (target, 0.12f);
+    displayColour = displayColour.interpolatedWith (target, 0.35f);
 
     // Send spectrum data to Teensy LED controller
     updateSpectrumToTeensy();
@@ -548,11 +684,15 @@ void MainComponent::updateSpectrumToTeensy()
         return;
 
     std::array<uint8_t, SpectrumRingBuffer::BYTES_PER_FRAME> frameData;
+    static constexpr float ledOffSnapThreshold = 2.0f / 255.0f;
+    static constexpr float ditherDisableThreshold255 = 3.0f;
 
     // Map 1024 spectrum bins to 144 LEDs
     constexpr int numLeds = SpectrumRingBuffer::NUM_LEDS;
     const float logMin = std::log10 (getSpectrumMinHz());
     const float logMax = std::log10 (getSpectrumMaxHz());
+    std::array<float, SpectrumRingBuffer::NUM_LEDS> ledTargetBrightness{};
+    std::array<float, SpectrumRingBuffer::NUM_LEDS> ledSpreadBrightness{};
 
     for (int led = 0; led < numLeds; ++led)
     {
@@ -568,16 +708,71 @@ void MainComponent::updateSpectrumToTeensy()
         {
             const float normalized = juce::jlimit (0.0f, 1.0f,
                 (mag - silenceThreshold) / juce::jmax (0.0001f, 1.0f - silenceThreshold));
-            const float curved = std::pow (normalized, 1.6f);
-            const float gain = 0.75f + (minBoost * 0.75f);
-            targetBrightness = juce::jlimit (0.0f, 1.0f, curved * gain);
+            const float curved = std::pow (normalized, 1.4f);
+            const float gain = 0.70f + (minBoost * 0.90f);
+            const float boosted = juce::jlimit (0.0f, 1.0f, curved * gain);
+
+            // minBoost sets a floor so active regions stay visible on LEDs.
+            const float floorAmount = minBoost * 0.18f;
+            targetBrightness = juce::jlimit (0.0f, 1.0f,
+                                             boosted + floorAmount * (1.0f - boosted));
         }
 
+        ledTargetBrightness[(size_t) led] = targetBrightness;
+    }
+
+    // Fill small LED gaps between peaks by bleeding a little energy to neighbors.
+    const float width = juce::jlimit (0.0f, 1.0f, harmonicWidth);
+    for (int led = 0; led < numLeds; ++led)
+    {
+        // Scale spread with LED position: high-frequency LEDs spread more.
+        const float t = (float) led / (float) (numLeds - 1);
+        const float freqFactor = 0.15f + 0.85f * t;
+        const float s1 = (0.06f + width * 1.02f + (minBoost * 0.08f)) * freqFactor;
+        const float s2 = (0.02f + width * 0.54f + (minBoost * 0.04f)) * freqFactor;
+        const float s3 = (width * 0.30f) * freqFactor;
+
+        const int left1 = juce::jmax (0, led - 1);
+        const int right1 = juce::jmin (numLeds - 1, led + 1);
+        const int left2 = juce::jmax (0, led - 2);
+        const int right2 = juce::jmin (numLeds - 1, led + 2);
+        const int left3 = juce::jmax (0, led - 3);
+        const int right3 = juce::jmin (numLeds - 1, led + 3);
+
+        const float n1 = juce::jmax (ledTargetBrightness[(size_t) left1],
+                                     ledTargetBrightness[(size_t) right1]);
+        const float n2 = juce::jmax (ledTargetBrightness[(size_t) left2],
+                                     ledTargetBrightness[(size_t) right2]);
+        const float n3 = juce::jmax (ledTargetBrightness[(size_t) left3],
+                                     ledTargetBrightness[(size_t) right3]);
+
+        ledSpreadBrightness[(size_t) led] = juce::jlimit (0.0f, 1.0f,
+            juce::jmax (ledTargetBrightness[(size_t) led],
+                        juce::jmax (n1 * s1,
+                                    juce::jmax (n2 * s2, n3 * s3))));
+    }
+
+    for (int led = 0; led < numLeds; ++led)
+    {
+        // Map LED index to frequency bin range using log scale
+        // Lower LEDs = low frequencies, higher LEDs = high frequencies
+        float t = (float) led / (float) numLeds;  // 0..1
+        float freq = std::pow (10.0f, logMin + t * (logMax - logMin));
+
         float& smoothed = ledSmoothedBrightness[(size_t) led];
-        const float attack = 0.35f;
-        const float release = 0.07f;
+        const float targetBrightness = ledSpreadBrightness[(size_t) led];
+        // Mirror the analyser attack/decay so LEDs track the visual display.
+        // Analyser uses (coeff * old + (1-coeff) * new), LED uses (old + coeff * delta),
+        // so the coefficients are inverted: analyser.decay=0 → LED release=1 (instant).
+        const float attack  = 1.0f - analyser.attack;
+        const float release = 1.0f - analyser.decay;
         const float coeff = (targetBrightness > smoothed) ? attack : release;
         smoothed += (targetBrightness - smoothed) * coeff;
+
+        // Prevent low-level tail flicker by snapping tiny residuals to fully off.
+        if (smoothed <= ledOffSnapThreshold)
+            smoothed = 0.0f;
+
         const float finalBrightness = smoothed;
 
         // Get color for this frequency
@@ -585,12 +780,20 @@ void MainComponent::updateSpectrumToTeensy()
 
         // Temporal error-feedback dithering on brightness only keeps hue stable.
         const size_t idx = (size_t) led;
-        float brightness255 = finalBrightness * 255.0f + ledQuantErrorBrightness[idx];
-        brightness255 = juce::jlimit (0.0f, 255.0f, brightness255);
-        uint8_t brightness8 = (uint8_t) std::floor (brightness255 + 0.5f);
-        ledQuantErrorBrightness[idx] = brightness255 - (float) brightness8;
-        if (brightness8 == 0)
+        uint8_t brightness8 = 0;
+        float brightness255 = finalBrightness * 255.0f;
+
+        if (brightness255 >= ditherDisableThreshold255)
+        {
+            brightness255 = juce::jlimit (0.0f, 255.0f, brightness255 + ledQuantErrorBrightness[idx]);
+            brightness8 = (uint8_t) std::floor (brightness255 + 0.5f);
+            ledQuantErrorBrightness[idx] = brightness255 - (float) brightness8;
+        }
+        else
+        {
+            brightness8 = (uint8_t) std::floor (brightness255 + 0.5f);
             ledQuantErrorBrightness[idx] = 0.0f;
+        }
 
         uint8_t r = (uint8_t) (((uint16_t) col.getRed()   * brightness8 + 127u) / 255u);
         uint8_t g = (uint8_t) (((uint16_t) col.getGreen() * brightness8 + 127u) / 255u);

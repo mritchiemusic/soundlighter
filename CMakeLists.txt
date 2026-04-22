@@ -4,7 +4,22 @@ project(SoundLighter VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_subdirectory($ENV{HOME}/Dev/JUCE JUCE)
+set(JUCE_DIR_ENV "$ENV{JUCE_DIR}")
+set(JUCE_DIR_HOME "$ENV{HOME}/Dev/JUCE")
+set(JUCE_DIR_FALLBACK "/Users/mike/Dev/JUCE")
+
+if (EXISTS "${JUCE_DIR_ENV}/CMakeLists.txt")
+    set(JUCE_SOURCE_DIR "${JUCE_DIR_ENV}")
+elseif (EXISTS "${JUCE_DIR_HOME}/CMakeLists.txt")
+    set(JUCE_SOURCE_DIR "${JUCE_DIR_HOME}")
+elseif (EXISTS "${JUCE_DIR_FALLBACK}/CMakeLists.txt")
+    set(JUCE_SOURCE_DIR "${JUCE_DIR_FALLBACK}")
+else()
+    message(FATAL_ERROR
+        "Could not find JUCE. Set JUCE_DIR, or install JUCE at ~/Dev/JUCE.")
+endif()
+
+add_subdirectory("${JUCE_SOURCE_DIR}" JUCE)
 
 juce_add_gui_app(SpectrumToColour
     PRODUCT_NAME "Sound Lighter"
